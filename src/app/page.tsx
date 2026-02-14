@@ -114,11 +114,7 @@ export default function ChartPage() {
           <p className="text-base font-semibold text-white">BTCUSD • BINANCE • Perp Futures</p>
           <p className="font-mono text-xs tabular-nums text-white/80">
             IST {liveTimeIST}
-            {lastCandleTime !== null && (
-              <span className="ml-2 text-white/60">
-                · Candle {formatDateTimeIST(lastCandleTime)}
-              </span>
-            )}
+            
           </p>
         </div>
         {lastCandleOHLC && (
