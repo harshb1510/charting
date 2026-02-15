@@ -3,6 +3,7 @@ import {
   CandlestickSeries,
   createSeriesMarkers,
   ColorType,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type IPriceLine,
@@ -80,14 +81,21 @@ export class ChartManager {
   private markersPlugin: ISeriesMarkersPluginApi<Time> | null = null;
   private markersMap = new Map<string, SeriesMarker<Time>>();
   private destroyed = false;
-  private dblClickHandler: MouseEventHandler<Time> | null = null;
+  private clickHandler: MouseEventHandler<Time> | null = null;
   private crosshairHandler: MouseEventHandler<Time> | null = null;
   private lastCrosshairPrice: number | null = null;
   private contextmenuHandler: ((e: MouseEvent) => void) | null = null;
+  private strikes: number[] = [];
+  private onStrikesChange: ((strikes: number[]) => void) | null = null;
 
-  attach(container: HTMLElement, initialData: ChartCandleData[]): void {
+  attach(
+    container: HTMLElement,
+    initialData: ChartCandleData[],
+    options?: { onStrikesChange?: (strikes: number[]) => void }
+  ): void {
     if (this.chart || this.destroyed) return;
     this.container = container;
+    this.onStrikesChange = options?.onStrikesChange ?? null;
     this.dataBuffer = this.trimBuffer(initialData);
 
     this.chart = createChart(container, CHART_OPTIONS);
@@ -97,18 +105,34 @@ export class ChartManager {
     this.markersPlugin = createSeriesMarkers(this.series);
     this.setupResizeObserver();
 
-    this.dblClickHandler = (param) => {
-      if (!param.point || !this.series) return;
+    this.clickHandler = (param) => {
+      if (!param.point || !this.series || !this.chart) return;
       const price = this.series.coordinateToPrice(param.point.y as number);
       if (price == null) return;
-      const id = `line-${Date.now()}`;
+      const priceScale = this.chart.priceScale("right");
+      const scaleWidth = typeof priceScale?.width === "function" ? priceScale.width() : 0;
+      const containerWidth = this.container?.clientWidth ?? 0;
+      const paneRight = Math.max(0, containerWidth - scaleWidth);
+      const nearPriceScale =
+        scaleWidth <= 0 ||
+        containerWidth <= 0 ||
+        param.point.x >= paneRight - 40;
+      if (!nearPriceScale) return;
+      const ts = Date.now();
+      const id = `strike-${ts}`;
+      const strikePrice = Math.round(price * 100) / 100;
       this.addPriceLine({
         id,
-        price,
-        title: price.toFixed(2),
+        price: strikePrice,
+        title: String(Math.round(strikePrice)),
+        color: "#3b82f6",
+        lineWidth: 1,
+        lineStyle: LineStyle.Solid,
       });
+      this.strikes = [...this.strikes, strikePrice];
+      this.onStrikesChange?.(this.strikes);
     };
-    this.chart.subscribeDblClick(this.dblClickHandler);
+    this.chart.subscribeClick(this.clickHandler);
 
     this.crosshairHandler = (param) => {
       if (!param.point || !this.series) {
@@ -128,24 +152,42 @@ export class ChartManager {
     container.addEventListener("contextmenu", this.contextmenuHandler);
   }
 
+  private static readonly PRICE_TOLERANCE = 0.5;
+
   private removePriceLineAtPrice(targetPrice: number): void {
     if (!this.series) return;
-    let closestId: string | null = null;
-    let closestDiff = Infinity;
+    const toRemove: string[] = [];
+    let removedPrice: number | null = null;
     for (const [id, line] of this.priceLines) {
       const linePrice = line.options().price;
-      const diff = Math.abs(linePrice - targetPrice);
-      if (diff < closestDiff) {
-        closestDiff = diff;
-        closestId = id;
+      if (Math.abs(linePrice - targetPrice) <= ChartManager.PRICE_TOLERANCE) {
+        toRemove.push(id);
+        removedPrice = linePrice;
       }
     }
-    if (closestId == null) return;
-    const line = this.priceLines.get(closestId);
-    if (line) {
-      this.series.removePriceLine(line);
-      this.priceLines.delete(closestId);
+    for (const id of toRemove) {
+      const line = this.priceLines.get(id);
+      if (line) {
+        this.series.removePriceLine(line);
+        this.priceLines.delete(id);
+      }
     }
+    if (removedPrice != null) {
+      this.strikes = this.strikes.filter(
+        (p) => Math.abs(p - removedPrice!) > ChartManager.PRICE_TOLERANCE
+      );
+      this.onStrikesChange?.(this.strikes);
+    }
+  }
+
+  getStrikes(): number[] {
+    return [...this.strikes];
+  }
+
+  priceToCoordinate(price: number): number | null {
+    if (!this.series) return null;
+    const coord = this.series.priceToCoordinate(price);
+    return coord != null ? (coord as number) : null;
   }
 
   private trimBuffer(data: ChartCandleData[]): ChartCandleData[] {
@@ -198,7 +240,8 @@ export class ChartManager {
     const line = this.series.createPriceLine({
       price: options.price,
       color: options.color ?? "#2563eb",
-      lineWidth: (options.lineWidth ?? 2) as 1 | 2 | 3 | 4,
+      lineWidth: (options.lineWidth ?? 1) as 1 | 2 | 3 | 4,
+      lineStyle: options.lineStyle ?? LineStyle.Solid,
       axisLabelVisible: true,
       title: options.title ?? "",
     });
@@ -262,13 +305,15 @@ export class ChartManager {
       this.chart.unsubscribeCrosshairMove(this.crosshairHandler);
       this.crosshairHandler = null;
     }
-    if (this.chart && this.dblClickHandler) {
-      this.chart.unsubscribeDblClick(this.dblClickHandler);
-      this.dblClickHandler = null;
+    if (this.chart && this.clickHandler) {
+      this.chart.unsubscribeClick(this.clickHandler);
+      this.clickHandler = null;
     }
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.priceLines.clear();
+    this.strikes = [];
+    this.onStrikesChange = null;
     this.markersMap.clear();
     this.chart?.remove();
     this.chart = null;

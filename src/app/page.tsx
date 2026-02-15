@@ -27,12 +27,14 @@ export default function ChartPage() {
 
   const setLastCandleTime = useChartStore((s) => s.setLastCandleTime);
   const setLastCandleOHLC = useChartStore((s) => s.setLastCandleOHLC);
-  const { attach, setData, handleCandle } = useChart({
+  const [strikes, setStrikes] = useState<number[]>([]);
+  const { attach, setData, handleCandle, priceToCoordinate } = useChart({
     initialData,
     onCandleUpdate: (candle) => {
       setLastCandleTime(candle.time);
       setLastCandleOHLC({ o: candle.open, h: candle.high, l: candle.low, c: candle.close });
     },
+    onStrikesChange: setStrikes,
   });
 
   useWebSocket({ interval, onKline: handleCandle });
@@ -132,7 +134,22 @@ export default function ChartPage() {
         )}
       </header>
       <div className="min-h-0 flex-1 overflow-hidden transition-[flex]">
-        <ChartContainer attach={attach} className="h-full w-full" />
+        <ChartContainer
+          attach={attach}
+          strikes={strikes}
+          priceToCoordinate={priceToCoordinate}
+          cePremium={
+            lastCandleOHLC?.c != null
+              ? (strike) => Math.max(0, lastCandleOHLC!.c - strike).toFixed(2)
+              : undefined
+          }
+          pePremium={
+            lastCandleOHLC?.c != null
+              ? (strike) => Math.max(0, strike - lastCandleOHLC!.c).toFixed(2)
+              : undefined
+          }
+          className="h-full w-full"
+        />
       </div>
       <div className="flex shrink-0 flex-col border-t border-white/20 bg-[#1a1a1a]">
         <div className="flex items-center">

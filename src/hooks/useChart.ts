@@ -6,22 +6,26 @@ import type { IPriceLine } from "lightweight-charts";
 export interface UseChartOptions {
   initialData: ChartCandleData[];
   onCandleUpdate?: (candle: ChartCandleData, isClosed: boolean) => void;
+  onStrikesChange?: (strikes: number[]) => void;
 }
 
 export function useChart(options: UseChartOptions) {
-  const { initialData, onCandleUpdate } = options;
+  const { initialData, onCandleUpdate, onStrikesChange } = options;
   const managerRef = useRef<ChartManager | null>(null);
   const onCandleUpdateRef = useRef(onCandleUpdate);
   useEffect(() => {
     onCandleUpdateRef.current = onCandleUpdate;
   }, [onCandleUpdate]);
 
-  const attach = useCallback((container: HTMLElement) => {
-    if (!container || managerRef.current) return;
-    const manager = new ChartManager();
-    manager.attach(container, initialData);
-    managerRef.current = manager;
-  }, [initialData]);
+  const attach = useCallback(
+    (container: HTMLElement) => {
+      if (!container || managerRef.current) return;
+      const manager = new ChartManager();
+      manager.attach(container, initialData, { onStrikesChange });
+      managerRef.current = manager;
+    },
+    [initialData, onStrikesChange]
+  );
 
   const updateLastCandle = useCallback((candle: ChartCandleData) => {
     managerRef.current?.updateLastCandle(candle);
@@ -67,6 +71,12 @@ export function useChart(options: UseChartOptions) {
     onCandleUpdateRef.current?.(candle, isClosed);
   }, [appendCandle, updateLastCandle]);
 
+  const getStrikes = useCallback(() => managerRef.current?.getStrikes() ?? [], []);
+  const priceToCoordinate = useCallback(
+    (price: number) => managerRef.current?.priceToCoordinate(price) ?? null,
+    []
+  );
+
   return {
     attach,
     setData,
@@ -77,5 +87,7 @@ export function useChart(options: UseChartOptions) {
     setPriceLineValue,
     addOrUpdateMarker,
     handleCandle,
+    getStrikes,
+    priceToCoordinate,
   };
 }
