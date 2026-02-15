@@ -27,6 +27,7 @@ export interface PriceLineOptions {
   price: number;
   color?: string;
   lineWidth?: number;
+  lineStyle?: 0 | 1 | 2 | 3; // LineStyle.Solid | Dotted | Dashed | LargeDashed
   title?: string;
 }
 
